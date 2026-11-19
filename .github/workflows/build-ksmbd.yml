@@ -15,11 +15,12 @@ jobs:
 
     steps:
       # 1. 获取 LibWrt 源码
+      
       - name: Checkout LibWrt
         uses: actions/checkout@v4
         with:
           repository: LiBwrt/LibWrt
-          ref: 0c4cd0f9920a
+          ref: 0c4cd0f9920a420a2ac95b49c1b62130769c08ae
           fetch-depth: 1
           path: libwrt
 
