@@ -1,0 +1,136 @@
+
+name: Build LibWrt kmod-fs-ksmbd
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ksmbd - qualcommax/ipq60xx
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      # 1. 获取 LibWrt 源码
+      - name: Checkout LibWrt
+        uses: actions/checkout@v4
+        with:
+          repository: LiBwrt/LibWrt
+          ref: 0c4cd0f9920a
+          fetch-depth: 1
+          path: libwrt
+
+      # 2. 安装编译依赖
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk \
+            gettext git libncurses-dev libssl-dev \
+            python3-setuptools python3-pyelftools \
+            python3-yaml python3-jinja2 rsync unzip \
+            zlib1g-dev file wget curl libelf-dev swig time
+
+      # 3. 更新 feeds
+      - name: Update feeds
+        working-directory: libwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # 4. 配置编译环境
+      - name: Configure build
+        working-directory: libwrt
+        run: |
+          set -e
+
+          cat > .config <<'EOF'
+          CONFIG_TARGET_qualcommax=y
+          CONFIG_TARGET_qualcommax_ipq60xx=y
+          CONFIG_PACKAGE_kmod-fs-ksmbd=m
+          EOF
+
+          make defconfig
+
+          grep -q '^CONFIG_TARGET_qualcommax=y' .config
+          grep -q '^CONFIG_TARGET_qualcommax_ipq60xx=y' .config
+          grep -q '^CONFIG_TARGET_ARCH_PACKAGES="aarch64_cortex-a53"' .config
+          grep -q '^CONFIG_PACKAGE_kmod-fs-ksmbd=m' .config
+
+          echo "Configuration passed!"
+
+      # 5. 下载源码
+      - name: Download sources
+        working-directory: libwrt
+        run: |
+          make download -j$(nproc)
+
+      # 6. 编译 ksmbd
+      - name: Compile ksmbd
+        working-directory: libwrt
+        run: |
+          make -j$(nproc) package/kernel/linux/compile V=s
+
+      # 7. 收集 APK/IPK
+      - name: Collect packages
+        working-directory: libwrt
+        run: |
+          set -e
+
+          mkdir -p output
+
+          find bin/packages -type f \
+            \( -name 'kmod-fs-ksmbd*.apk' \
+            -o -name 'kmod-fs-ksmbd*.ipk' \) \
+            -exec cp -v {} output/ \;
+
+          if ! find output -type f \
+            | grep -q 'kmod-fs-ksmbd'; then
+            echo "ERROR: ksmbd package not found!"
+            exit 1
+          fi
+
+          cp .config output/
+          git rev-parse HEAD > output/source-commit.txt
+
+          echo "Build results:"
+          ls -lh output/
+
+      # 8. 上传 Actions Artifacts
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LibWrt-25.12.2-kmod-fs-ksmbd
+          path: libwrt/output/
+          compression-level: 9
+          if-no-files-found: error
+          retention-days: 30
+
+      # 9. 自动创建 GitHub Release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ksmbd-${{ github.run_number }}
+          name: LibWrt 25.12.2 kmod-fs-ksmbd Build ${{ github.run_number }}
+          body: |
+            ## LibWrt kmod-fs-ksmbd
+
+            - Firmware: LibWrt 25.12.2
+            - Target: qualcommax
+            - Subtarget: ipq60xx
+            - Architecture: aarch64_cortex-a53
+            - Kernel: Source-tree build
+            - Package: kmod-fs-ksmbd
+            - Source Revision: 0c4cd0f9920a
+
+            Automatically compiled by GitHub Actions.
+
+            注意：安装前请确认目标固件的内核 ABI 一致。
+          files: libwrt/output/*
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+          make_latest: true
