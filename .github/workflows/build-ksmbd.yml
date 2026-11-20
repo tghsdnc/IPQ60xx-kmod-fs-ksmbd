@@ -68,11 +68,26 @@ jobs:
         working-directory: libwrt
         run: |
           make download -j$(nproc)
+      
+      # 6. 编译 OpenWrt Host Tools
+      - name: Build host tools
+        working-directory: libwrt
+        run: |
+          set -e
+          make tools/install -j$(nproc) V=s
 
-      # 6. 编译 ksmbd
+      # 7. 编译交叉工具链
+      - name: Build toolchain
+        working-directory: libwrt
+        run: |
+          set -e
+          make toolchain/install -j$(nproc) V=s
+
+      # 8. 编译 ksmbd 内核模块
       - name: Compile ksmbd
         working-directory: libwrt
         run: |
+          set -e
           make -j$(nproc) package/kernel/linux/compile V=s
 
       # 7. 收集 APK/IPK
