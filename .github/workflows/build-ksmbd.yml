@@ -42,6 +42,12 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Install signing key
+        working-directory: libwrt
+        run: |
+          echo "${{ secrets.APK_PRIVATE_KEY }}" > private-key.pem
+          openssl ec -in private-key.pem -pubout -out public-key.pem
+          
       # 4. 配置编译环境
       - name: Configure build
         working-directory: libwrt
@@ -100,6 +106,7 @@ jobs:
           KO=$(find build_dir -type f -path '*fs/smb/server/ksmbd.ko' | head -1)
           test -n "$KO"
           cp -v "$KO" output/
+          cp public-key.pem output/
           modinfo -F depends  "$KO" > output/ksmbd-depends.txt
           modinfo -F vermagic "$KO" > output/ksmbd-vermagic.txt
 
