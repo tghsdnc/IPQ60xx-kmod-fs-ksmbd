@@ -94,6 +94,20 @@ jobs:
         run: |
           set -e
           make package/kernel/linux/compile -j$(nproc) V=s
+          
+      - name: Remove kernel hash dependency
+        working-directory: libwrt
+        run: |
+          set -e
+          echo "== 修改前 =="
+          grep -n "LINUX_VERMAGIC" include/kernel.mk package/kernel/linux/Makefile || true
+
+          # 去掉 kmod 对 kernel=版本~hash 的依赖
+          sed -i -E 's/kernel ?\(?=[^ )]*LINUX_VERMAGIC[^ )]*\)?//g' include/kernel.mk
+
+          echo "== 修改后 =="
+          grep -n "LINUX_VERMAGIC" include/kernel.mk package/kernel/linux/Makefile || true
+          
       # 7. 收集 APK/IPK
       - name: Collect packages
         working-directory: libwrt
