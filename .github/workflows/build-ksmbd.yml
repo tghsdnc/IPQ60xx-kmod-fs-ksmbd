@@ -103,9 +103,7 @@ jobs:
 
           mkdir -p output
 
-          find bin/packages -type f \
-            \( -name 'kmod-fs-ksmbd*.apk' \
-            -o -name 'kmod-fs-ksmbd*.ipk' \) \
+          find bin -type f \( -name 'kmod-fs-ksmbd*.apk' -o -name 'kmod-fs-ksmbd*.ipk' \) \
             -exec cp -v {} output/ \;
 
           if ! find output -type f \
