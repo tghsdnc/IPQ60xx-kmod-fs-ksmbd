@@ -1,4 +1,3 @@
-
 name: Build LibWrt kmod-fs-ksmbd
 
 on:
@@ -15,7 +14,6 @@ jobs:
 
     steps:
       # 1. 获取 LibWrt 源码
-      
       - name: Checkout LibWrt
         uses: actions/checkout@v4
         with:
@@ -33,7 +31,7 @@ jobs:
             gettext git libncurses-dev libssl-dev \
             python3-setuptools python3-pyelftools \
             python3-yaml python3-jinja2 rsync unzip \
-            zlib1g-dev file wget curl libelf-dev swig time
+            zlib1g-dev file wget curl libelf-dev swig time kmod
 
       # 3. 更新 feeds
       - name: Update feeds
@@ -42,23 +40,27 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      # 4. 固定 APK 签名密钥
       - name: Install signing key
         working-directory: libwrt
+        env:
+          APK_PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
         run: |
-          echo "${{ secrets.APK_PRIVATE_KEY }}" > private-key.pem
+          set -e
+          printf '%s\n' "$APK_PRIVATE_KEY" > private-key.pem
           openssl ec -in private-key.pem -pubout -out public-key.pem
-          
-      # 4. 配置编译环境
+
+      # 5. 配置编译环境
       - name: Configure build
         working-directory: libwrt
         run: |
           set -e
 
-          cat > .config <<'EOF'
+          cat > .config <<'CFG'
           CONFIG_TARGET_qualcommax=y
           CONFIG_TARGET_qualcommax_ipq60xx=y
           CONFIG_PACKAGE_kmod-fs-ksmbd=m
-          EOF
+          CFG
 
           make defconfig
 
@@ -69,14 +71,13 @@ jobs:
 
           echo "Configuration passed!"
 
-      # 5. 下载源码
+      # 6. 下载源码
       - name: Download sources
         working-directory: libwrt
         run: |
           make download -j$(nproc)
-      
-      # 6. 编译 OpenWrt Host Tools
-        
+
+      # 7. 编译 host tools 和 toolchain
       - name: Build host tools and toolchain
         working-directory: libwrt
         run: |
@@ -84,48 +85,46 @@ jobs:
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
+      # 8. 编译内核
       - name: Build kernel
         working-directory: libwrt
         run: |
           set -e
           make target/linux/compile -j$(nproc) V=s
-      - name: Compile ksmbd
+
+      # 9. 编译内核模块(含 kmod-fs-ksmbd 及其依赖)
+      - name: Compile kernel modules
         working-directory: libwrt
         run: |
           set -e
           make package/kernel/linux/compile -j$(nproc) V=s
-          
-      - name: Remove kernel hash dependency
-        working-directory: libwrt
-        run: |
-          set -e
-          echo "== 修改前 =="
-          grep -n "LINUX_VERMAGIC" include/kernel.mk package/kernel/linux/Makefile || true
 
-          # 去掉 kmod 对 kernel=版本~hash 的依赖
-          sed -i -E 's/kernel ?\(?=[^ )]*LINUX_VERMAGIC[^ )]*\)?//g' include/kernel.mk
-
-          echo "== 修改后 =="
-          grep -n "LINUX_VERMAGIC" include/kernel.mk package/kernel/linux/Makefile || true
-          
-      # 7. 收集 APK/IPK
+      # 10. 收集 ksmbd 及其依赖的 APK
       - name: Collect packages
         working-directory: libwrt
         run: |
           set -e
           mkdir -p output
 
-          find bin -type f -name 'kmod-fs-ksmbd*.apk' -exec cp -v {} output/ \;
+          for p in kmod-fs-ksmbd kmod-asn1-decoder kmod-oid-registry \
+                   kmod-fs-smbfs-common kmod-crypto-des kmod-crypto-md5 \
+                   kmod-crypto-sha256; do
+            n=$(find bin -type f -name "$p-[0-9]*.apk" | wc -l)
+            if [ "$n" -eq 0 ]; then
+              echo "WARN: $p 没有找到"
+              continue
+            fi
+            find bin -type f -name "$p-[0-9]*.apk" -exec cp -v {} output/ \;
+          done
 
-          KO=$(find build_dir -type f -path '*fs/smb/server/ksmbd.ko' | head -1)
-          test -n "$KO"
-          cp -v "$KO" output/
+          # ksmbd 主包必须存在
+          ls output/kmod-fs-ksmbd-[0-9]*.apk
+
           cp public-key.pem output/
-          modinfo -F depends  "$KO" > output/ksmbd-depends.txt
-          modinfo -F vermagic "$KO" > output/ksmbd-vermagic.txt
-
+          echo "Build results:"
           ls -lh output/
-      # 8. 上传 Actions Artifacts
+
+      # 11. 上传 Actions Artifacts
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -135,7 +134,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # 9. 自动创建 GitHub Release
+      # 12. 自动创建 GitHub Release
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -148,13 +147,12 @@ jobs:
             - Target: qualcommax
             - Subtarget: ipq60xx
             - Architecture: aarch64_cortex-a53
-            - Kernel: Source-tree build
-            - Package: kmod-fs-ksmbd
             - Source Revision: 0c4cd0f9920a
+            - Packages: kmod-fs-ksmbd 及其依赖模块
 
             Automatically compiled by GitHub Actions.
 
-            注意：安装前请确认目标固件的内核 ABI 一致。
+            注意:内核 hash 与固件不一致,请用 apk extract 解包后 insmod,不要直接 apk add。
           files: libwrt/output/*
           fail_on_unmatched_files: true
           draft: false
