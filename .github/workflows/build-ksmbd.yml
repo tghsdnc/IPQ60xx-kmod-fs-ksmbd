@@ -83,18 +83,11 @@ jobs:
         run: |
           set -e
           make target/linux/compile -j$(nproc) V=s
-
-      - name: Find ksmbd package path
-        working-directory: libwrt
-        run: |
-          find . -path ./build_dir -prune -o -name Makefile -print \
-            | xargs grep -l "KernelPackage/fs-ksmbd" 2>/dev/null
-
       - name: Compile ksmbd
         working-directory: libwrt
         run: |
           set -e
-          make package/kernel/ksmbd/compile -j$(nproc) V=s
+          make package/kernel/linux/compile -j$(nproc) V=s
       # 7. 收集 APK/IPK
       - name: Collect packages
         working-directory: libwrt
