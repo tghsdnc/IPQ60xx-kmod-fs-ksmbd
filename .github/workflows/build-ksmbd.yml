@@ -93,24 +93,17 @@ jobs:
         working-directory: libwrt
         run: |
           set -e
-
           mkdir -p output
 
-          find bin -type f \( -name 'kmod-fs-ksmbd*.apk' -o -name 'kmod-fs-ksmbd*.ipk' \) \
-            -exec cp -v {} output/ \;
+          find bin -type f -name 'kmod-fs-ksmbd*.apk' -exec cp -v {} output/ \;
 
-          if ! find output -type f \
-            | grep -q 'kmod-fs-ksmbd'; then
-            echo "ERROR: ksmbd package not found!"
-            exit 1
-          fi
+          KO=$(find build_dir -type f -path '*fs/smb/server/ksmbd.ko' | head -1)
+          test -n "$KO"
+          cp -v "$KO" output/
+          modinfo -F depends  "$KO" > output/ksmbd-depends.txt
+          modinfo -F vermagic "$KO" > output/ksmbd-vermagic.txt
 
-          cp .config output/
-          git rev-parse HEAD > output/source-commit.txt
-
-          echo "Build results:"
           ls -lh output/
-
       # 8. 上传 Actions Artifacts
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
